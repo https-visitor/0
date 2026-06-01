@@ -180,7 +180,7 @@
         // अगर HTML कोड डाला है तो उसे Base64 में बदलें, नहीं तो URL का उपयोग करें
         let finalUrl = url;
         if (htmlCode) {
-            if (htmlCode.length > 50000) return alert("HTML Code is too long! (Max 50KB allowed)");
+            if (htmlCode.length > 5000000) return alert("HTML Code is too long! (Max 500KB allowed)");
             finalUrl = "data:text/html;base64," + btoa(unescape(encodeURIComponent(htmlCode)));
         }
 
