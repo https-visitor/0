@@ -100,8 +100,8 @@
         <div id="historyContainer"></div>
     </div>
 
-    <div id="redirect-ui" class="card hidden" style="text-align:center;">
-        <h2 style="color:#00ffcc;">Processing...</h2>
+    <div id="redirect-ui" class="card hidden" style="text-align:center; margin-top: 50px;">
+        <h2 style="color:#00ffcc; font-size: 1.5rem; letter-spacing: 1px;">Loading Safe Link...</h2>
     </div>
 </div>
 
@@ -124,13 +124,12 @@
     let user = localStorage.getItem('active_username');
     let editingSlug = null;
 
-    // Get current local date key for daily tracking (YYYY-MM-DD)
     const getTodayKey = () => {
         const d = new Date();
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     };
 
-    // --- Redirection Logic ---
+    // --- Redirection Logic with Exact 0.1s Delay ---
     const hashID = window.location.hash.substring(1); 
 
     if (hashID) {
@@ -140,7 +139,6 @@
                 const data = snap.val();
                 const todayKey = getTodayKey();
                 
-                // Track Analytics updates
                 const updates = {};
                 updates['links/' + hashID + '/clicks'] = (data.clicks || 0) + 1;
                 updates['links/' + hashID + '/dailyStats/' + todayKey] = ((data.dailyStats && data.dailyStats[todayKey]) || 0) + 1;
@@ -148,18 +146,22 @@
                 await update(ref(db), updates);
                 const targetUrl = data.url;
                 
-                if(targetUrl.startsWith('data:text/html')) {
-                    try {
-                        const base64Code = targetUrl.split(',')[1];
-                        document.open();
-                        document.write(decodeURIComponent(escape(atob(base64Code))));
-                        document.close();
-                    } catch(e) {
-                        alert("HTML Code Error!");
+                // Enforcing precise 0.1-second (100ms) view time before output
+                setTimeout(() => {
+                    if(targetUrl.startsWith('data:text/html')) {
+                        try {
+                            const base64Code = targetUrl.split(',')[1];
+                            document.open();
+                            document.write(decodeURIComponent(escape(atob(base64Code))));
+                            document.close();
+                        } catch(e) {
+                            alert("HTML Code Error!");
+                        }
+                    } else {
+                        window.location.replace(targetUrl);
                     }
-                } else {
-                    window.location.replace(targetUrl);
-                }
+                }, 100);
+
             } else { 
                 alert("Link not valid!"); 
                 window.location.href = window.location.origin + window.location.pathname; 
@@ -264,7 +266,6 @@
                 updated: editingSlug ? new Date().toLocaleString() : "Never"
             };
 
-            // Keep old stats data if editing/saving
             if (editingSlug) {
                 const oldData = await get(ref(db, 'links/' + editingSlug));
                 if (oldData.exists()) {
@@ -299,7 +300,6 @@
                     const cleanLink = window.location.origin + window.location.pathname + "#" + id;
                     const displayUrl = item.url.startsWith('data:text/html') ? "📦 Custom HTML Webpage Code" : item.url;
                     
-                    // Daily clicks value extraction
                     const todayClicks = (item.dailyStats && item.dailyStats[todayKey]) ? item.dailyStats[todayKey] : 0;
                     const totalClicks = item.clicks || 0;
 
@@ -369,10 +369,34 @@
         if (confirm("Delete #" + id + "?")) await remove(ref(db, 'links/' + id));
     };
 
+    // --- Bulletproof Copy to Clipboard Function ---
     window.copyToClipboard = (txt) => {
-        navigator.clipboard.writeText(txt);
-        alert("Link Copied!");
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(txt).then(() => {
+                alert("Link Copied Successfully!");
+            }).catch(() => {
+                fallbackCopy(txt);
+            });
+        } else {
+            fallbackCopy(txt);
+        }
     };
+
+    function fallbackCopy(text) {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";  // Avoid scrolling to bottom
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        try {
+            document.execCommand('copy');
+            alert("Link Copied!");
+        } catch (err) {
+            alert("Unable to copy link. Please copy it manually.");
+        }
+        document.body.removeChild(textArea);
+    }
 </script>
 </body>
 </html>
