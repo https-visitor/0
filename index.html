@@ -55,6 +55,22 @@
 
         .hidden { display: none; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+
+        /* Full Screen Pure Black Redirect Overlay */
+        #redirect-ui {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: #000000 !important;
+            z-index: 99999;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+        }
     </style>
 </head>
 <body>
@@ -100,9 +116,7 @@
         <div id="historyContainer"></div>
     </div>
 
-    <div id="redirect-ui" class="card hidden" style="text-align:center; margin-top: 50px;">
-        <h2 style="color:#00ffcc; font-size: 1.5rem; letter-spacing: 1px;">Loading Safe Link...</h2>
-    </div>
+    <div id="redirect-ui" class="hidden"></div>
 </div>
 
 <script type="module">
