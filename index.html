@@ -55,16 +55,11 @@
 
         .hidden { display: none; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        
-        /* Blank Redirect Screen with exact Same App Background */
-        #redirect-ui { background: var(--bg); border: none; box-shadow: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; margin: 0; border-radius: 0; z-index: 99999; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <div id="redirect-ui" class="hidden"></div>
-
     <div id="login-ui" class="card hidden">
         <h2>CREATE USERNAME</h2>
         <input type="text" id="usernameField" placeholder="@your_name">
@@ -104,6 +99,10 @@
         <h3 style="margin: 30px 0 15px; border-left: 4px solid var(--neon); padding-left: 10px;">Your History</h3>
         <div id="historyContainer"></div>
     </div>
+
+    <div id="redirect-ui" class="card hidden" style="text-align:center;">
+        <h2 style="color:#00ffcc;">Processing...</h2>
+    </div>
 </div>
 
 <script type="module">
@@ -125,72 +124,52 @@
     let user = localStorage.getItem('active_username');
     let editingSlug = null;
 
+    // Get current local date key for daily tracking (YYYY-MM-DD)
     const getTodayKey = () => {
         const d = new Date();
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     };
 
-    // --- Dynamic Routing Check & Redirection Logic (Slash Based) ---
-    function checkRouting() {
-        const currentPath = window.location.pathname;
-        const segments = currentPath.split('/').filter(s => s && s !== 'index.html');
-        
-        if (segments.length > 0) {
-            const possibleSlug = segments[segments.length - 1];
-            
-            // Show completely blank layout immediately
-            document.getElementById('redirect-ui').classList.remove('hidden');
-            
-            get(ref(db, 'links/' + possibleSlug)).then(async (snap) => {
-                if (snap.exists()) {
-                    const data = snap.val();
-                    const todayKey = getTodayKey();
-                    
-                    const updates = {};
-                    updates['links/' + possibleSlug + '/clicks'] = (data.clicks || 0) + 1;
-                    updates['links/' + possibleSlug + '/dailyStats/' + todayKey] = ((data.dailyStats && data.dailyStats[todayKey]) || 0) + 1;
-                    
-                    await update(ref(db), updates);
-                    const targetUrl = data.url;
-                    
-                    // Hold exactly for 0.1 second (100ms) before opening target contents
-                    setTimeout(() => {
-                        if(targetUrl.startsWith('data:text/html')) {
-                            try {
-                                const base64Code = targetUrl.split(',')[1];
-                                document.open();
-                                document.write(decodeURIComponent(escape(atob(base64Code))));
-                                document.close();
-                            } catch(e) {
-                                alert("HTML Code Error!");
-                            }
-                        } else {
-                            window.location.replace(targetUrl);
-                        }
-                    }, 100);
-                    
+    // --- Redirection Logic ---
+    const hashID = window.location.hash.substring(1); 
+
+    if (hashID) {
+        document.getElementById('redirect-ui').classList.remove('hidden');
+        get(ref(db, 'links/' + hashID)).then(async (snap) => {
+            if (snap.exists()) {
+                const data = snap.val();
+                const todayKey = getTodayKey();
+                
+                // Track Analytics updates
+                const updates = {};
+                updates['links/' + hashID + '/clicks'] = (data.clicks || 0) + 1;
+                updates['links/' + hashID + '/dailyStats/' + todayKey] = ((data.dailyStats && data.dailyStats[todayKey]) || 0) + 1;
+                
+                await update(ref(db), updates);
+                const targetUrl = data.url;
+                
+                if(targetUrl.startsWith('data:text/html')) {
+                    try {
+                        const base64Code = targetUrl.split(',')[1];
+                        document.open();
+                        document.write(decodeURIComponent(escape(atob(base64Code))));
+                        document.close();
+                    } catch(e) {
+                        alert("HTML Code Error!");
+                    }
                 } else {
-                    initializeDashboardUI();
+                    window.location.replace(targetUrl);
                 }
-            }).catch(() => {
-                initializeDashboardUI();
-            });
-        } else {
-            initializeDashboardUI();
-        }
+            } else { 
+                alert("Link not valid!"); 
+                window.location.href = window.location.origin + window.location.pathname; 
+            }
+        });
+    } else if (!user) {
+        document.getElementById('login-ui').classList.remove('hidden');
+    } else {
+        startApp();
     }
-
-    function initializeDashboardUI() {
-        document.getElementById('redirect-ui').classList.add('hidden');
-        if (!user) {
-            document.getElementById('login-ui').classList.remove('hidden');
-        } else {
-            startApp();
-        }
-    }
-
-    // Execute routing process
-    checkRouting();
 
     // --- Smart Input Toggle ---
     window.toggleInputFields = (source) => {
@@ -245,12 +224,9 @@
         let name = document.getElementById('usernameField').value.trim();
         if (name.length < 3) return alert("Username too short!");
         localStorage.setItem('active_username', name.startsWith('@') ? name : '@' + name);
-        window.location.href = window.location.origin + window.location.pathname.split('/').filter(p => !p.endsWith('.html') && p !== '').join('/');
+        location.reload();
     };
-    window.handleLogout = () => { 
-        localStorage.removeItem('active_username'); 
-        window.location.href = window.location.origin + window.location.pathname;
-    };
+    window.handleLogout = () => { localStorage.removeItem('active_username'); location.reload(); };
 
     function startApp() {
         document.getElementById('dashboard-ui').classList.remove('hidden');
@@ -288,6 +264,7 @@
                 updated: editingSlug ? new Date().toLocaleString() : "Never"
             };
 
+            // Keep old stats data if editing/saving
             if (editingSlug) {
                 const oldData = await get(ref(db, 'links/' + editingSlug));
                 if (oldData.exists()) {
@@ -319,19 +296,17 @@
             Object.keys(data).reverse().forEach(id => {
                 if (data[id].owner === user) {
                     const item = data[id];
-                    
-                    let basePath = window.location.origin + window.location.pathname;
-                    if (!basePath.endsWith('/')) basePath += '/';
-                    const cleanLink = basePath + id;
-                    
+                    const cleanLink = window.location.origin + window.location.pathname + "#" + id;
                     const displayUrl = item.url.startsWith('data:text/html') ? "📦 Custom HTML Webpage Code" : item.url;
+                    
+                    // Daily clicks value extraction
                     const todayClicks = (item.dailyStats && item.dailyStats[todayKey]) ? item.dailyStats[todayKey] : 0;
                     const totalClicks = item.clicks || 0;
 
                     container.innerHTML += `
                         <div class="history-card">
                             <div class="slug-row">
-                                <span class="slug-name">/${id}</span>
+                                <span class="slug-name">#${id}</span>
                                 <div class="stats-badges">
                                     <span class="click-count badge-today">Today: ${todayClicks}</span>
                                     <span class="click-count badge-life">Lifetime: ${totalClicks}</span>
@@ -369,7 +344,7 @@
         }
 
         document.getElementById('customSlug').value = id;
-        document.getElementById('formTitle').innerText = "Editing: /" + id;
+        document.getElementById('formTitle').innerText = "Editing: #" + id;
         document.getElementById('mainBtn').innerText = "Update & Save";
         document.getElementById('cancelEdit').classList.remove('hidden');
         window.scrollTo(0,0);
@@ -391,39 +366,13 @@
     };
 
     window.deleteLink = async (id) => {
-        if (confirm("Delete /" + id + "?")) await remove(ref(db, 'links/' + id));
+        if (confirm("Delete #" + id + "?")) await remove(ref(db, 'links/' + id));
     };
 
-    // --- Absolute Robust Copy Engine Fixed ---
     window.copyToClipboard = (txt) => {
-        if (navigator.clipboard && window.isSecureContext) {
-            navigator.clipboard.writeText(txt).then(() => {
-                alert("Link Copied!");
-            }).catch(() => {
-                fallbackCopy(txt);
-            });
-        } else {
-            fallbackCopy(txt);
-        }
+        navigator.clipboard.writeText(txt);
+        alert("Link Copied!");
     };
-
-    function fallbackCopy(text) {
-        const textArea = document.createElement("textarea");
-        textArea.value = text;
-        textArea.style.position = "fixed";
-        textArea.style.left = "-999999px";
-        textArea.style.top = "-999999px";
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-        try {
-            document.execCommand('copy');
-            alert("Link Copied!");
-        } catch (err) {
-            alert("Copy failed, please long press the link.");
-        }
-        document.body.removeChild(textArea);
-    }
 </script>
 </body>
 </html>
