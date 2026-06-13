@@ -1,6 +1,4 @@
 <!DOCTYPE html>
-<html lang="en">
- <!DOCTYPE html>
 <html lang="hi">
 <head>
     <meta charset="UTF-8">
@@ -17,6 +15,18 @@
         input, textarea { width: 100%; padding: 14px; margin: 10px 0; background: rgba(0,0,0,0.5); border: 1px solid rgba(188, 19, 254, 0.3); border-radius: 12px; color: #fff; box-sizing: border-box; outline: none; font-family: inherit; }
         textarea { height: 120px; resize: vertical; font-family: 'Courier New', Courier, monospace; font-size: 0.9rem; }
         
+        /* File Upload Styling */
+        .file-upload-wrapper { margin: 5px 0 10px; display: flex; align-items: center; gap: 10px; }
+        .file-label { background: rgba(255, 255, 255, 0.1); padding: 10px 15px; border-radius: 8px; border: 1px dashed rgba(188, 19, 254, 0.5); cursor: pointer; font-size: 0.85rem; transition: 0.3s; display: inline-block; }
+        .file-label:hover { background: rgba(188, 19, 254, 0.1); }
+        #htmlFile { display: none; }
+
+        /* Custom Slug Section Row */
+        .slug-input-group { display: flex; gap: 10px; align-items: center; margin: 10px 0; }
+        .slug-input-group input { margin: 0; flex: 1; }
+        .auto-btn { width: auto; padding: 14px 20px; background: #00ffcc; color: #000; font-weight: bold; border-radius: 12px; border: none; cursor: pointer; transition: 0.3s; white-space: nowrap; }
+        .auto-btn:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0, 255, 204, 0.4); }
+
         button { width: 100%; padding: 14px; background: var(--neon); border: none; color: #fff; font-weight: bold; border-radius: 12px; cursor: pointer; transition: 0.3s; margin-top: 5px; }
         button:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(188, 19, 254, 0.4); }
 
@@ -27,7 +37,12 @@
         
         .slug-row { display: flex; justify-content: space-between; align-items: center; }
         .slug-name { font-size: 1.1rem; font-weight: bold; color: #00ffcc; }
-        .click-count { background: #00ffcc; color: #000; padding: 2px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 800; }
+        
+        /* Stats Chips */
+        .stats-badges { display: flex; gap: 8px; }
+        .click-count { color: #000; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 800; }
+        .badge-today { background: #ff007f; color: #fff; }
+        .badge-life { background: #00ffcc; color: #000; }
         
         .link-url { font-size: 0.8rem; color: #888; word-break: break-all; margin: 10px 0; display: block; }
         .time-info { font-size: 0.65rem; color: #555; margin-bottom: 12px; line-height: 1.4; }
@@ -40,11 +55,16 @@
 
         .hidden { display: none; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        
+        /* Blank Redirect Screen with exact Same App Background */
+        #redirect-ui { background: var(--bg); border: none; box-shadow: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; margin: 0; border-radius: 0; z-index: 99999; }
     </style>
 </head>
 <body>
 
 <div class="container">
+    <div id="redirect-ui" class="hidden"></div>
+
     <div id="login-ui" class="card hidden">
         <h2>CREATE USERNAME</h2>
         <input type="text" id="usernameField" placeholder="@your_name">
@@ -62,22 +82,27 @@
             
             <input type="url" id="longUrl" placeholder="Target URL (https://...)" oninput="toggleInputFields('url')">
             
-            <div class="or-divider">─── OR PASTE DIRECT HTML CODE ───</div>
+            <div class="or-divider">─── OR PASTE HTML / UPLOAD FILE ───</div>
             
+            <div class="file-upload-wrapper">
+                <label for="htmlFile" class="file-label">📁 Choose HTML File</label>
+                <input type="file" id="htmlFile" accept=".html" onchange="handleFileUpload(event)">
+                <span id="fileNameDisplay" style="font-size:0.8rem; color:#aaa;">No file chosen</span>
+            </div>
+
             <textarea id="htmlCodeInput" placeholder="<html>\n<body>\n  <h1>Hello World</h1>\n</body>\n</html>" oninput="toggleInputFields('html')"></textarea>
 
-            <input type="text" id="customSlug" placeholder="Custom Name (slug)">
+            <div class="slug-input-group">
+                <input type="text" id="customSlug" placeholder="Custom Name (slug) or Auto Generate">
+                <button type="button" class="auto-btn" onclick="generateRandomSlug()">Auto</button>
+            </div>
+
             <button id="mainBtn" onclick="createNewLink()">Create Link</button>
             <button id="cancelEdit" class="hidden" onclick="resetForm()" style="background:#444;">Cancel Edit</button>
         </div>
 
         <h3 style="margin: 30px 0 15px; border-left: 4px solid var(--neon); padding-left: 10px;">Your History</h3>
         <div id="historyContainer"></div>
-    </div>
-
-    <div id="redirect-ui" class="card hidden" style="text-align:center;">
-        <h2 style="color:#00ffcc;"></h2>
-        <p></p>
     </div>
 </div>
 
@@ -100,39 +125,72 @@
     let user = localStorage.getItem('active_username');
     let editingSlug = null;
 
-    // --- Redirection Logic (Using Hash #) ---
-    const hashID = window.location.hash.substring(1); 
+    const getTodayKey = () => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
 
-    if (hashID) {
-        document.getElementById('redirect-ui').classList.remove('hidden');
-        get(ref(db, 'links/' + hashID)).then(async (snap) => {
-            if (snap.exists()) {
-                await update(ref(db, 'links/' + hashID), { clicks: (snap.val().clicks || 0) + 1 });
-                const targetUrl = snap.val().url;
-                
-                // अगर डेटा Base64 HTML है, तो उसे डिकोड करके सीधा पेज पर रेंडर करेंगे
-                if(targetUrl.startsWith('data:text/html')) {
-                    try {
-                        const base64Code = targetUrl.split(',')[1];
-                        document.open();
-                        document.write(decodeURIComponent(escape(atob(base64Code))));
-                        document.close();
-                    } catch(e) {
-                        alert("HTML Code Error!");
-                    }
+    // --- Dynamic Routing Check & Redirection Logic (Slash Based) ---
+    function checkRouting() {
+        const currentPath = window.location.pathname;
+        const segments = currentPath.split('/').filter(s => s && s !== 'index.html');
+        
+        if (segments.length > 0) {
+            const possibleSlug = segments[segments.length - 1];
+            
+            // Show completely blank layout immediately
+            document.getElementById('redirect-ui').classList.remove('hidden');
+            
+            get(ref(db, 'links/' + possibleSlug)).then(async (snap) => {
+                if (snap.exists()) {
+                    const data = snap.val();
+                    const todayKey = getTodayKey();
+                    
+                    const updates = {};
+                    updates['links/' + possibleSlug + '/clicks'] = (data.clicks || 0) + 1;
+                    updates['links/' + possibleSlug + '/dailyStats/' + todayKey] = ((data.dailyStats && data.dailyStats[todayKey]) || 0) + 1;
+                    
+                    await update(ref(db), updates);
+                    const targetUrl = data.url;
+                    
+                    // Hold exactly for 0.1 second (100ms) before opening target contents
+                    setTimeout(() => {
+                        if(targetUrl.startsWith('data:text/html')) {
+                            try {
+                                const base64Code = targetUrl.split(',')[1];
+                                document.open();
+                                document.write(decodeURIComponent(escape(atob(base64Code))));
+                                document.close();
+                            } catch(e) {
+                                alert("HTML Code Error!");
+                            }
+                        } else {
+                            window.location.replace(targetUrl);
+                        }
+                    }, 100);
+                    
                 } else {
-                    window.location.replace(targetUrl);
+                    initializeDashboardUI();
                 }
-            } else { 
-                alert("Link not valid!"); 
-                window.location.href = window.location.origin + window.location.pathname; 
-            }
-        });
-    } else if (!user) {
-        document.getElementById('login-ui').classList.remove('hidden');
-    } else {
-        startApp();
+            }).catch(() => {
+                initializeDashboardUI();
+            });
+        } else {
+            initializeDashboardUI();
+        }
     }
+
+    function initializeDashboardUI() {
+        document.getElementById('redirect-ui').classList.add('hidden');
+        if (!user) {
+            document.getElementById('login-ui').classList.remove('hidden');
+        } else {
+            startApp();
+        }
+    }
+
+    // Execute routing process
+    checkRouting();
 
     // --- Smart Input Toggle ---
     window.toggleInputFields = (source) => {
@@ -142,15 +200,44 @@
         if (source === 'url' && urlInput.value.trim() !== "") {
             htmlInput.disabled = true;
             htmlInput.style.opacity = "0.3";
+            document.getElementById('htmlFile').disabled = true;
         } else if (source === 'html' && htmlInput.value.trim() !== "") {
             urlInput.disabled = true;
             urlInput.style.opacity = "0.3";
-        } else {
+        } else if (source === 'reset') {
             urlInput.disabled = false;
             htmlInput.disabled = false;
             urlInput.style.opacity = "1";
             htmlInput.style.opacity = "1";
+            document.getElementById('htmlFile').disabled = false;
+            document.getElementById('fileNameDisplay').innerText = "No file chosen";
+            document.getElementById('htmlFile').value = "";
         }
+    };
+
+    // --- HTML File Reader ---
+    window.handleFileUpload = (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+        
+        document.getElementById('fileNameDisplay').innerText = file.name;
+        
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            document.getElementById('htmlCodeInput').value = e.target.result;
+            toggleInputFields('html');
+        };
+        reader.readAsText(file);
+    };
+
+    // --- Auto Random Slug ---
+    window.generateRandomSlug = () => {
+        const characters = 'abcdefghijklmnopqrstuvwxyz0123456789';
+        let randomResult = '';
+        for (let i = 0; i < 5; i++) {
+            randomResult += characters.charAt(Math.floor(Math.random() * characters.length));
+        }
+        document.getElementById('customSlug').value = randomResult;
     };
 
     // --- Account Logic ---
@@ -158,9 +245,12 @@
         let name = document.getElementById('usernameField').value.trim();
         if (name.length < 3) return alert("Username too short!");
         localStorage.setItem('active_username', name.startsWith('@') ? name : '@' + name);
-        location.reload();
+        window.location.href = window.location.origin + window.location.pathname.split('/').filter(p => !p.endsWith('.html') && p !== '').join('/');
     };
-    window.handleLogout = () => { localStorage.removeItem('active_username'); location.reload(); };
+    window.handleLogout = () => { 
+        localStorage.removeItem('active_username'); 
+        window.location.href = window.location.origin + window.location.pathname;
+    };
 
     function startApp() {
         document.getElementById('dashboard-ui').classList.remove('hidden');
@@ -174,13 +264,12 @@
         const htmlCode = document.getElementById('htmlCodeInput').value.trim();
         const slug = document.getElementById('customSlug').value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
 
-        if (!url && !htmlCode) return alert("Please enter a Target URL OR Paste HTML code!");
+        if (!url && !htmlCode) return alert("Please enter a Target URL OR Paste/Upload HTML code!");
         if (!slug) return alert("Custom Name (slug) is required!");
 
-        // अगर HTML कोड डाला है तो उसे Base64 में बदलें, नहीं तो URL का उपयोग करें
         let finalUrl = url;
         if (htmlCode) {
-            if (htmlCode.length > 5000000) return alert("HTML Code is too long! (Max 500KB allowed)");
+            if (htmlCode.length > 500000) return alert("HTML Code is too long! (Max 50KB allowed)");
             finalUrl = "data:text/html;base64," + btoa(unescape(encodeURIComponent(htmlCode)));
         }
 
@@ -194,19 +283,21 @@
                 url: finalUrl,
                 owner: user,
                 clicks: 0,
+                dailyStats: {},
                 created: new Date().toLocaleString(),
                 updated: editingSlug ? new Date().toLocaleString() : "Never"
             };
 
-            if (editingSlug && editingSlug !== slug) {
+            if (editingSlug) {
                 const oldData = await get(ref(db, 'links/' + editingSlug));
-                payload.clicks = oldData.val().clicks || 0;
-                payload.created = oldData.val().created;
-                await remove(ref(ref(db, 'links/' + editingSlug)));
-            } else if (editingSlug === slug) {
-                const oldData = await get(ref(db, 'links/' + editingSlug));
-                payload.clicks = oldData.val().clicks || 0;
-                payload.created = oldData.val().created;
+                if (oldData.exists()) {
+                    payload.clicks = oldData.val().clicks || 0;
+                    payload.dailyStats = oldData.val().dailyStats || {};
+                    payload.created = oldData.val().created;
+                }
+                if (editingSlug !== slug) {
+                    await remove(ref(db, 'links/' + editingSlug));
+                }
             }
 
             await set(ref(db, 'links/' + slug), payload);
@@ -215,7 +306,7 @@
         } catch (e) { alert("Database Error!"); }
     };
 
-    // --- History Loader ---
+    // --- History Loader with Live Stats ---
     function loadHistory() {
         onValue(ref(db, 'links'), (snap) => {
             const data = snap.val();
@@ -223,17 +314,28 @@
             container.innerHTML = '';
             if (!data) return;
 
+            const todayKey = getTodayKey();
+
             Object.keys(data).reverse().forEach(id => {
                 if (data[id].owner === user) {
                     const item = data[id];
-                    const cleanLink = window.location.origin + window.location.pathname + "#" + id;
-                    const displayUrl = item.url.startsWith('data:text/html') ? "📦 Custom HTML Webpage Code" : item.url;
                     
+                    let basePath = window.location.origin + window.location.pathname;
+                    if (!basePath.endsWith('/')) basePath += '/';
+                    const cleanLink = basePath + id;
+                    
+                    const displayUrl = item.url.startsWith('data:text/html') ? "📦 Custom HTML Webpage Code" : item.url;
+                    const todayClicks = (item.dailyStats && item.dailyStats[todayKey]) ? item.dailyStats[todayKey] : 0;
+                    const totalClicks = item.clicks || 0;
+
                     container.innerHTML += `
                         <div class="history-card">
                             <div class="slug-row">
-                                <span class="slug-name">#${id}</span>
-                                <span class="click-count">${item.clicks} Clicks</span>
+                                <span class="slug-name">/${id}</span>
+                                <div class="stats-badges">
+                                    <span class="click-count badge-today">Today: ${todayClicks}</span>
+                                    <span class="click-count badge-life">Lifetime: ${totalClicks}</span>
+                                </div>
                             </div>
                             <span class="link-url">${displayUrl}</span>
                             <div class="time-info"><b>Created:</b> ${item.created}<br><b>Edited:</b> ${item.updated}</div>
@@ -267,7 +369,7 @@
         }
 
         document.getElementById('customSlug').value = id;
-        document.getElementById('formTitle').innerText = "Editing: #" + id;
+        document.getElementById('formTitle').innerText = "Editing: /" + id;
         document.getElementById('mainBtn').innerText = "Update & Save";
         document.getElementById('cancelEdit').classList.remove('hidden');
         window.scrollTo(0,0);
@@ -289,13 +391,39 @@
     };
 
     window.deleteLink = async (id) => {
-        if (confirm("Delete #" + id + "?")) await remove(ref(db, 'links/' + id));
+        if (confirm("Delete /" + id + "?")) await remove(ref(db, 'links/' + id));
     };
 
+    // --- Absolute Robust Copy Engine Fixed ---
     window.copyToClipboard = (txt) => {
-        navigator.clipboard.writeText(txt);
-        alert("Link Copied!");
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(txt).then(() => {
+                alert("Link Copied!");
+            }).catch(() => {
+                fallbackCopy(txt);
+            });
+        } else {
+            fallbackCopy(txt);
+        }
     };
+
+    function fallbackCopy(text) {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        textArea.style.top = "-999999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        try {
+            document.execCommand('copy');
+            alert("Link Copied!");
+        } catch (err) {
+            alert("Copy failed, please long press the link.");
+        }
+        document.body.removeChild(textArea);
+    }
 </script>
 </body>
 </html>
